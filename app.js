@@ -120,33 +120,55 @@ async function iniciarAplicativo() {
     }
 }
 
-// --- 4. ENGINE DE RECONHECIMENTO FACIAL ---
+// --- 4. ENGINE DE RECONHECIMENTO FACIAL HÍBRIDO ---
 async function atualizarFaceMatcher() {
+    statusDiv.innerText = "Sincronizando assinaturas faciais...";
+    
+    // 1. Carregar assinaturas das fotos que estão na pasta física 'rostos/'
+    const descritoresPasta = await Promise.all(
+        FOTOS_NA_PASTA.map(async u => {
+            try {
+                const img = await faceapi.fetchImage(u.foto);
+                const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                if (detection) {
+                    return new faceapi.LabeledFaceDescriptors(`${u.nome}|${u.funcao}`, [detection.descriptor]);
+                }
+            } catch (e) { 
+                console.warn(`Aviso: Não foi possível carregar a foto da pasta: ${u.foto}. Verifique se o arquivo existe.`); 
+            }
+            return null;
+        })
+    );
+
+    // 2. Carregar assinaturas das fotos tiradas no painel Admin (IndexedDB)
     const transaction = db.transaction(["usuarios"], "readonly");
     const store = transaction.objectStore("usuarios");
     const request = store.getAll();
 
     return new Promise((resolve) => {
         request.onsuccess = async () => {
-            const usuarios = request.result;
-            const labeledDescriptors = await Promise.all(
-                usuarios.map(async u => {
+            const usuariosBanco = request.result;
+            
+            const descritoresBanco = await Promise.all(
+                usuariosBanco.map(async u => {
                     try {
                         const img = await faceapi.fetchImage(u.foto);
                         const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                         if (detection) {
                             return new faceapi.LabeledFaceDescriptors(`${u.nome}|${u.funcao}`, [detection.descriptor]);
                         }
-                    } catch (e) { console.error(e); }
+                    } catch (e) { console.error("Erro ao ler foto do banco:", e); }
                     return null;
                 })
             );
 
-            const validDescriptors = labeledDescriptors.filter(d => d !== null);
-            if (validDescriptors.length > 0) {
-                faceMatcher = new faceapi.FaceMatcher(validDescriptors, 0.55);
+            // Juntar todos os descritores válidos (Pasta + Banco)
+            const todosDescritores = [...descritoresPasta, ...descritoresBanco].filter(d => d !== null);
+
+            if (todosDescritores.length > 0) {
+                faceMatcher = new faceapi.FaceMatcher(todosDescritores, 0.55);
             } else {
-                faceMatcher = null; // Sem cadastros ativos válidos
+                faceMatcher = null; // Nenhum rosto cadastrado em lugar nenhum
             }
             resolve();
         };
