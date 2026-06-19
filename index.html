@@ -3,27 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner Facial Universitário</title>
+    <title>CampusID - Sistema Facial</title>
     <link rel="stylesheet" href="style.css">
     <link rel="manifest" href="manifest.json">
-    
     <script src="https://unpkg.com/@vladmandic/face-api/dist/face-api.js"></script>
     <script defer src="app.js"></script>
 </head>
 <body>
     <header>
-        <h1>CampusID <span>• Reconhecimento Facial</span></h1>
-        <button id="installBtn" style="display: none;">Instalar App</button>
+        <h1>CampusID <span>• Gestão Universitária</span></h1>
+        <div class="nav-tabs">
+            <button id="tabMonitoramento" class="tab-btn active">Monitoramento</button>
+            <button id="tabAdmin" class="tab-btn">Painel Admin (Cadastro)</button>
+        </div>
     </header>
 
-    <main class="container">
+    <main id="viewMonitoramento" class="container tab-content active">
         <section class="camera-section">
             <h2>Monitoramento em Tempo Real</h2>
             <div class="video-container">
                 <video id="video" autoplay muted width="640" height="480"></video>
                 <canvas id="overlay"></canvas>
             </div>
-            <div id="status" class="status-loading">Carregando Modelos de IA...</div>
+            <div id="status" class="status-loading">Carregando IA...</div>
         </section>
 
         <section class="report-section">
@@ -31,17 +33,53 @@
             <div class="table-wrapper">
                 <table>
                     <thead>
-                        <tr>
-                            <th>Nome</th>
-                            <th>Função</th>
-                            <th>Horário</th>
-                        </tr>
+                        <tr><th>Nome</th><th>Função</th><th>Horário</th></tr>
                     </thead>
-                    <tbody id="report-body">
-                        </tbody>
+                    <tbody id="report-body"></tbody>
                 </table>
             </div>
-            <button id="clearLog">Limpar Relatório</button>
+            <button id="clearLog" class="btn-danger">Limpar Relatório</button>
+        </section>
+    </main>
+
+    <main id="viewAdmin" class="container tab-content">
+        <section class="cadastro-section">
+            <h2>Cadastrar Novo Usuário</h2>
+            <form id="cadastroForm">
+                <div class="form-group">
+                    <label for="cadNome">Nome Completo:</label>
+                    <input type="text" id="cadNome" required placeholder="Ex: Aléssio">
+                </div>
+                <div class="form-group">
+                    <label for="cadFuncao">Função:</label>
+                    <select id="cadFuncao">
+                        <option value="Aluno">Aluno</option>
+                        <option value="Professor">Professor</option>
+                        <option value="Funcionario">Funcionário</option>
+                    </select>
+                </div>
+                
+                <div class="camera-capture-box">
+                    <video id="videoCapture" autoplay muted width="320" height="240"></video>
+                    <button type="button" id="btnTirarFoto">📸 Capturar Rosto</button>
+                    <canvas id="canvasPreview" width="320" height="240" style="display:none;"></canvas>
+                    <div id="captureStatus"></div>
+                </div>
+
+                <button type="submit" id="btnSalvarCadastro" disabled>Salvar Registro</button>
+            </form>
+        </section>
+
+        <section class="lista-section">
+            <h2>Pessoas Cadastradas</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr><th>Nome</th><th>Função</th><th>Ações</th></tr>
+                    </thead>
+                    <tbody id="usuarios-cadastrados-body"></tbody>
+                </table>
+            </div>
         </section>
     </main>
 </body>
