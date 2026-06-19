@@ -1,88 +1,163 @@
+// Seleção de elementos das abas
+const tabMonitoramento = document.getElementById('tabMonitoramento');
+const tabAdmin = document.getElementById('tabAdmin');
+const viewMonitoramento = document.getElementById('viewMonitoramento');
+const viewAdmin = document.getElementById('viewAdmin');
+
+// Elementos de tela
 const video = document.getElementById('video');
+const videoCapture = document.getElementById('videoCapture');
 const statusDiv = document.getElementById('status');
 const reportBody = document.getElementById('report-body');
+const usuariosBody = document.getElementById('usuarios-cadastrados-body');
 const clearLogBtn = document.getElementById('clearLog');
 
-// Dados fictícios para simular rostos já cadastrados na faculdade (Alunos/Professores)
-// Em produção, você carregaria as fotos deles do banco de dados
-const USUARIOS_CADASTRADOS = [
-    { nome: "Aléssio", funcao: "Professor", foto: "rostos/alessio.jpg" },
-    { nome: "Ana Silva", funcao: "Aluna", foto: "rostos/ana.jpg" }
-];
+// Formulário e Captura
+const cadastroForm = document.getElementById('cadastroForm');
+const btnTirarFoto = document.getElementById('btnTirarFoto');
+const canvasPreview = document.getElementById('canvasPreview');
+const captureStatus = document.getElementById('captureStatus');
+const btnSalvarCadastro = document.getElementById('btnSalvarCadastro');
 
 let faceMatcher;
 let ultimoRegistro = {};
+let db;
+let fotoCapturadaBase64 = null;
+let streamMonitoramento = null;
+let streamCadastro = null;
 
-// 1. Inicializar e Carregar Modelos da face-api.js
+// --- 1. CONFIGURAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB) ---
+function inicializarBancoDados() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("CampusID_DB", 1);
+        
+        request.onupgradeneeded = (e) => {
+            db = e.target.result;
+            if (!db.objectStoreNames.contains("usuarios")) {
+                db.createObjectStore("usuarios", { keyPath: "id", autoIncrement: true });
+            }
+        };
+
+        request.onsuccess = (e) => {
+            db = e.target.result;
+            resolve();
+        };
+
+        request.onerror = (e) => reject("Erro ao abrir banco de dados local.");
+    });
+}
+
+// --- 2. GERENCIAMENTO DE ABAS E CÂMERAS ---
+tabMonitoramento.addEventListener('click', () => {
+    tabAdmin.classList.remove('active');
+    tabMonitoramento.classList.add('active');
+    viewAdmin.classList.remove('active');
+    viewMonitoramento.classList.add('active');
+    desligarCamera(streamCadastro);
+    iniciarCameraMonitoramento();
+});
+
+tabAdmin.addEventListener('click', () => {
+    tabMonitoramento.classList.remove('active');
+    tabAdmin.classList.add('active');
+    viewMonitoramento.classList.remove('active');
+    viewAdmin.classList.add('active');
+    desligarCamera(streamMonitoramento);
+    iniciarCameraCadastro();
+    listarUsuariosCadastrados();
+});
+
+function desligarCamera(stream) {
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+    }
+}
+
+// Câmera da tela principal
+function iniciarCameraMonitoramento() {
+    navigator.mediaDevices.getUserMedia({ video: {} }).then(stream => {
+        streamMonitoramento = stream;
+        video.srcObject = stream;
+    }).catch(err => console.error("Erro na câmera de monitoramento:", err));
+}
+
+// Câmera do painel admin
+function iniciarCameraCadastro() {
+    navigator.mediaDevices.getUserMedia({ video: {} }).then(stream => {
+        streamCadastro = stream;
+        videoCapture.srcObject = stream;
+    }).catch(err => console.error("Erro na câmera de cadastro:", err));
+}
+
+// --- 3. INICIALIZAÇÃO DA IA ---
 async function iniciarAplicativo() {
     try {
-        // URL alternativa e estável para carregar os pesos da IA se não estiverem locais
+        await inicializarBancoDados();
+        
         const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
+        statusDiv.innerText = "Carregando modelos de Inteligência Artificial...";
         
         await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
         await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
         
-        statusDiv.innerText = "Modelos carregados. Treinando assinaturas...";
-        await treinarRostosConhecidos();
+        statusDiv.innerText = "Sincronizando assinaturas faciais...";
+        await atualizarFaceMatcher();
         
-        statusDiv.innerText = "Pronto! Iniciando câmera...";
+        statusDiv.innerText = "Sistema de IA Pronto!";
         statusDiv.className = "status-ready";
         
-        iniciarVideo();
+        iniciarCameraMonitoramento();
     } catch (err) {
         console.error("Erro ao iniciar IA:", err);
-        statusDiv.innerText = "Erro ao carregar inteligência artificial.";
+        statusDiv.innerText = "Falha crítica na inicialização.";
     }
 }
 
-// 2. Ligar a Câmera
-function iniciarVideo() {
-    navigator.mediaDevices.getUserMedia({ video: {} })
-        .then(stream => { video.srcObject = stream; })
-        .catch(err => console.error("Erro ao acessar câmera: ", err));
-}
+// --- 4. ENGINE DE RECONHECIMENTO FACIAL ---
+async function atualizarFaceMatcher() {
+    const transaction = db.transaction(["usuarios"], "readonly");
+    const store = transaction.objectStore("usuarios");
+    const request = store.getAll();
 
-// 3. Gerar os vetores matemáticos (descriptors) das fotos salvas
-async function treinarRostosConhecidos() {
-    const labeledDescriptors = await Promise.all(
-        USUARIOS_CADASTRADOS.map(async usuario => {
-            try {
-                const img = await faceapi.fetchImage(usuario.foto);
-                const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-                if (!detections) throw new Error(`Não foi possível detectar rosto para ${usuario.nome}`);
-                
-                // Armazena junto o nome e função separados por um delimitador "|"
-                return new faceapi.LabeledFaceDescriptors(`${usuario.nome}|${usuario.funcao}`, [detections.descriptor]);
-            } catch (e) {
-                console.warn(e.message);
-                return null;
+    return new Promise((resolve) => {
+        request.onsuccess = async () => {
+            const usuarios = request.result;
+            const labeledDescriptors = await Promise.all(
+                usuarios.map(async u => {
+                    try {
+                        const img = await faceapi.fetchImage(u.foto);
+                        const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                        if (detection) {
+                            return new faceapi.LabeledFaceDescriptors(`${u.nome}|${u.funcao}`, [detection.descriptor]);
+                        }
+                    } catch (e) { console.error(e); }
+                    return null;
+                })
+            );
+
+            const validDescriptors = labeledDescriptors.filter(d => d !== null);
+            if (validDescriptors.length > 0) {
+                faceMatcher = new faceapi.FaceMatcher(validDescriptors, 0.55);
+            } else {
+                faceMatcher = null; // Sem cadastros ativos válidos
             }
-        })
-    );
-    // Filtra cadastros que falharam
-    const validDescriptors = labeledDescriptors.filter(d => d !== null);
-    
-    // Cria o comparador de rostos (limiar de precisão de 0.6)
-    if (validDescriptors.length > 0) {
-        faceMatcher = new faceapi.FaceMatcher(validDescriptors, 0.6);
-    }
+            resolve();
+        };
+    });
 }
 
-// 4. Loop de Reconhecimento em Tempo Real ao reproduzir o vídeo
+// Loop do scanner em tempo real
 video.addEventListener('play', () => {
     const canvas = document.getElementById('overlay');
     const displaySize = { width: video.width, height: video.height };
     faceapi.matchDimensions(canvas, displaySize);
 
     setInterval(async () => {
-        if (!faceMatcher) return;
+        if (!faceMatcher || viewMonitoramento.classList.contains('active') === false) return;
 
-        // Detecta rostos no frame do vídeo
         const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
         const resizedDetections = faceapi.resizeResults(detections, displaySize);
-        
-        // Limpa o canvas anterior
         canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 
         resizedDetections.forEach(detection => {
@@ -95,41 +170,110 @@ video.addEventListener('play', () => {
                 salvarNoRelatorio(label, funcao);
             }
 
-            // Desenha caixa e nome na tela
             const box = detection.detection.box;
             const drawBox = new faceapi.draw.DrawBox(box, { label: `${label} (${funcao})` });
             drawBox.draw(canvas);
         });
-    }, 500); // Roda a cada 500ms para poupar CPU/Bateria
+    }, 600);
 });
 
-// 5. Adicionar registros ao Relatório (e salvar no LocalStorage)
 function salvarNoRelatorio(nome, funcao) {
     const agora = new Date();
-    const horaFormatada = agora.toLocaleTimeString('pt-BR');
-    
-    // Evita registrar a mesma pessoa repetidamente em menos de 15 segundos
     if (ultimoRegistro[nome] && (agora - ultimoRegistro[nome] < 15000)) return;
     ultimoRegistro[nome] = agora;
 
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><strong>${nome}</strong></td><td>${funcao}</td><td>${horaFormatada}</td>`;
-    reportBody.prepend(tr); // Adiciona no topo da tabela
-
-    // Aqui você pode também persistir no IndexedDB ou LocalStorage se quiser guardar histórico offline
+    tr.innerHTML = `<td><strong>${nome}</strong></td><td>${funcao}</td><td>${agora.toLocaleTimeString('pt-BR')}</td>`;
+    reportBody.prepend(tr);
 }
 
-// Limpar relatório visual
-clearLogBtn.addEventListener('click', () => { reportBody.innerHTML = ""; ultimoRegistro = {}; });
+// --- 5. LÓGICA DO PAINEL ADMIN (TIRAR FOTO E SALVAR) ---
+btnTirarFoto.addEventListener('click', async () => {
+    const ctx = canvasPreview.getContext('2d');
+    // Desenha o frame atual do vídeo de captura no canvas invisível
+    ctx.drawImage(videoCapture, 0, 0, 320, 240);
+    const dataUrl = canvasPreview.toDataURL('image/jpeg');
 
-// Registro do Service Worker para PWA
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('Service Worker registrado!'))
-            .catch(err => console.warn('Erro ao registrar Service Worker', err));
-    });
+    captureStatus.innerHTML = "Validando enquadramento do rosto...";
+    captureStatus.className = "";
+
+    // Validação imediata: Só aceita a foto se a IA encontrar um rosto limpo nela
+    const img = await faceapi.fetchImage(dataUrl);
+    const detection = await faceapi.detectSingleFace(img);
+
+    if (detection) {
+        fotoCapturadaBase64 = dataUrl;
+        captureStatus.innerText = "✔️ Rosto detectado com sucesso!";
+        captureStatus.className = "text-success";
+        btnSalvarCadastro.disabled = false;
+    } else {
+        fotoCapturadaBase64 = null;
+        captureStatus.innerText = "❌ Nenhum rosto detectado. Olhe para a câmera e tente de novo.";
+        captureStatus.className = "text-danger";
+        btnSalvarCadastro.disabled = true;
+    }
+});
+
+cadastroForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!fotoCapturadaBase64) return;
+
+    const novoUsuario = {
+        nome: document.getElementById('cadNome').value,
+        funcao: document.getElementById('cadFuncao').value,
+        foto: fotoCapturadaBase64
+    };
+
+    const transaction = db.transaction(["usuarios"], "readwrite");
+    const store = transaction.objectStore("usuarios");
+    store.add(novoUsuario);
+
+    transaction.oncomplete = async () => {
+        alert("Usuário cadastrado perfeitamente!");
+        cadastroForm.reset();
+        fotoCapturadaBase64 = null;
+        btnSalvarCadastro.disabled = true;
+        captureStatus.innerText = "";
+        
+        await atualizarFaceMatcher();
+        listarUsuariosCadastrados();
+    };
+});
+
+function listarUsuariosCadastrados() {
+    usuariosBody.innerHTML = "";
+    const transaction = db.transaction(["usuarios"], "readonly");
+    const store = transaction.objectStore("usuarios");
+    
+    store.openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+            const u = cursor.value;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${u.nome}</td>
+                <td>${u.funcao}</td>
+                <td><button class="btn-danger" onclick="deletarUsuario(${u.id})">Excluir</button></td>
+            `;
+            usuariosBody.appendChild(tr);
+            cursor.continue();
+        }
+    };
 }
 
-// Inicializa tudo
+window.deletarUsuario = (id) => {
+    if (confirm("Tem certeza que deseja remover este cadastro?")) {
+        const transaction = db.transaction(["usuarios"], "readwrite");
+        const store = transaction.objectStore("usuarios");
+        store.delete(id);
+        transaction.oncomplete = async () => {
+            await atualizarFaceMatcher();
+            listarUsuariosCadastrados();
+        };
+    }
+};
+
+clearLogBtn.addEventListener('click', () => { reportBody.innerHTML = ""; });
+
+// Inicialização imediata
 iniciarAplicativo();
