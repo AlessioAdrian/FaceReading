@@ -16,14 +16,14 @@ let ultimoRegistro = {};
 // 1. Inicializar e Carregar Modelos da face-api.js
 async function iniciarAplicativo() {
     try {
-        // Carrega os modelos a partir da sua pasta local /models
-        await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-        await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        // URL alternativa e estável para carregar os pesos da IA se não estiverem locais
+        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
         
-        statusDiv.innerText = "Modelos carregados. Treinando assinaturas faciais...";
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
         
-        // Treinar os rostos cadastrados
+        statusDiv.innerText = "Modelos carregados. Treinando assinaturas...";
         await treinarRostosConhecidos();
         
         statusDiv.innerText = "Pronto! Iniciando câmera...";
