@@ -1,3 +1,9 @@
+// Fotos que você salvou manualmente na pasta "rostos" do seu projeto/GitHub
+const FOTOS_NA_PASTA = [
+    { nome: "Aléssio", funcao: "Professor", foto: "rostos/alessio.jpg" },
+    { nome: "Ana Silva", funcao: "Aluna", foto: "rostos/ana.html" }, // se for .png ou .jpeg altere a extensão aqui
+    { nome: "Carlos Souza", funcao: "Professor", foto: "rostos/carlos.jpg" }
+];
 // Seleção de elementos das abas
 const tabMonitoramento = document.getElementById('tabMonitoramento');
 const tabAdmin = document.getElementById('tabAdmin');
